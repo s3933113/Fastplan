@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@forge/bridge';
+import './App.css';
 
 // === Styles (Atlassian Brand Theme) ===
 const theme = {
@@ -30,7 +31,96 @@ const mainCardStyle = {
     boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
     marginBottom: '40px',
     display: 'flex',
+    flexDirection: 'column',
+    position: 'relative'
+};
+
+const settingsButtonStyle = {
+    position: 'absolute',
+    top: '20px',
+    right: '20px',
+    background: theme.primary,
+    border: 'none',
+    color: '#FFFFFF',
+    padding: '8px 16px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontWeight: '600',
+    fontSize: '14px',
+    transition: 'all 0.2s'
+};
+
+const modalOverlayStyle = {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000
+};
+
+const modalStyle = {
+    background: theme.white,
+    borderRadius: '12px',
+    padding: '30px',
+    width: '90%',
+    maxWidth: '500px',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
+    position: 'relative'
+};
+
+const selectStyle = {
+    width: '100%',
+    padding: '12px',
+    borderRadius: '4px',
+    border: `2px solid ${theme.border}`,
+    fontSize: '14px',
+    marginTop: '10px',
+    cursor: 'pointer'
+};
+
+const loadingOverlayStyle = {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2000,
     flexDirection: 'column'
+};
+
+const loadingModalStyle = {
+    background: theme.white,
+    borderRadius: '12px',
+    padding: '40px',
+    minWidth: '300px',
+    textAlign: 'center',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.3)'
+};
+
+// Spinner component with CSS animation (using external CSS file to avoid CSP issues)
+const Spinner = () => {
+    return (
+        <div
+            style={{
+                border: '4px solid #f3f3f3',
+                borderTop: '4px solid #0052CC',
+                borderRadius: '50%',
+                width: '50px',
+                height: '50px',
+                margin: '0 auto 20px',
+                animation: 'spinner-rotate 1s linear infinite'
+            }}
+        />
+    );
 };
 
 const boxStyle = { 
@@ -83,6 +173,25 @@ function App() {
     const [creating, setCreating] = useState(false);
     const [message, setMessage] = useState(null);
     const [isHovered, setIsHovered] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [selectedModel, setSelectedModel] = useState('gpt-4o-mini'); // Default model
+    const [complexity, setComplexity] = useState('MVP'); // Default complexity
+    
+    // Available GPT models
+    const availableModels = [
+        { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Fast & Cost-Effective)' },
+        { value: 'gpt-4o', label: 'GPT-4o (Balanced)' },
+        { value: 'gpt-4-turbo', label: 'GPT-4 Turbo (High Quality)' },
+        { value: 'gpt-4', label: 'GPT-4 (Standard)' },
+        { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (Legacy)' }
+    ];
+    
+    // Complexity options
+    const complexityOptions = [
+        { value: 'MVP', label: 'MVP - Core Features Only' },
+        { value: 'Standard', label: 'Standard - Full Product' },
+        { value: 'Enterprise', label: 'Enterprise - Scalable & Secure' }
+    ];
 
     // Selection handler function (allows independent selection)
     const toggle = (id) => {
@@ -93,7 +202,7 @@ function App() {
         if (!prompt.trim()) return;
         setLoading(true); setMessage(null); setPlan(null);
         try {
-            const result = await invoke('generatePlan', { prompt });
+            const result = await invoke('generatePlan', { prompt, model: selectedModel, complexity });
             setPlan(result);
             
             // Initial state: Select all items by default, user can deselect as needed
@@ -138,7 +247,37 @@ function App() {
 
     return (
         <div style={containerStyle}>
+            {/* Loading Popup */}
+            {loading && (
+                <div style={loadingOverlayStyle}>
+                    <div style={loadingModalStyle}>
+                        <Spinner />
+                        <h3 style={{ color: theme.primary, marginTop: 0, marginBottom: '10px' }}>
+                            AI is drafting the plan...
+                        </h3>
+                        <p style={{ color: theme.text, fontSize: '14px', margin: 0, opacity: 0.7 }}>
+                            Please wait while we generate your project plan
+                        </p>
+                    </div>
+                </div>
+            )}
+            
             <div style={mainCardStyle}>
+                <button 
+                    style={settingsButtonStyle}
+                    onClick={() => setShowSettings(true)}
+                    onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = '#0052CC'; // Darker blue on hover
+                        e.target.style.opacity = '0.9';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = theme.primary;
+                        e.target.style.opacity = '1';
+                    }}
+                >
+                    ⚙️ Settings Agent
+                </button>
+                
                 <h2 style={{ color: theme.primary, fontWeight: 'bold', marginTop: 0, marginBottom: '15px' }}>
                     Jira FastPlan Project
                 </h2>
@@ -153,6 +292,21 @@ function App() {
                     value={prompt} 
                     onChange={e => setPrompt(e.target.value)} 
                 />
+                
+                <label style={{ color: theme.text, fontWeight: '600', display: 'block', marginBottom: '8px', marginTop: '10px' }}>
+                    Project Complexity:
+                </label>
+                <select
+                    style={selectStyle}
+                    value={complexity}
+                    onChange={(e) => setComplexity(e.target.value)}
+                >
+                    {complexityOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                            {option.label}
+                        </option>
+                    ))}
+                </select>
                 
                 <button 
                     style={{
@@ -241,6 +395,67 @@ function App() {
                     fontWeight: 'bold'
                 }}>
                     {message.text}
+                </div>
+            )}
+
+            {/* Settings Modal */}
+            {showSettings && (
+                <div style={modalOverlayStyle} onClick={() => setShowSettings(false)}>
+                    <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
+                        <button
+                            style={{
+                                position: 'absolute',
+                                top: '15px',
+                                right: '15px',
+                                background: 'transparent',
+                                border: 'none',
+                                fontSize: '24px',
+                                cursor: 'pointer',
+                                color: theme.text,
+                                fontWeight: 'bold'
+                            }}
+                            onClick={() => setShowSettings(false)}
+                        >
+                            ×
+                        </button>
+                        
+                        <h3 style={{ color: theme.primary, marginTop: 0, marginBottom: '20px' }}>
+                            Agent Settings
+                        </h3>
+                        
+                        <label style={{ color: theme.text, fontWeight: '600', display: 'block' }}>
+                            Select GPT Model:
+                        </label>
+                        
+                        <select
+                            style={selectStyle}
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                        >
+                            {availableModels.map((model) => (
+                                <option key={model.value} value={model.value}>
+                                    {model.label}
+                                </option>
+                            ))}
+                        </select>
+                        
+                        <p style={{ color: theme.text, fontSize: '12px', marginTop: '15px', opacity: 0.7 }}>
+                            Current selection: <strong>{selectedModel}</strong>
+                        </p>
+                        
+                        <button
+                            style={{
+                                ...btnStyle,
+                                width: '100%',
+                                marginTop: '20px',
+                                backgroundColor: theme.primary,
+                                color: '#FFFFFF'
+                            }}
+                            onClick={() => setShowSettings(false)}
+                        >
+                            Save Settings
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

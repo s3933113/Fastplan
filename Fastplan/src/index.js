@@ -42,10 +42,15 @@ resolver.define('testOpenAIConnection', async () => {
 
 // Function to call OpenAI API to analyze prompt and create a plan
 // This function sends the prompt to OpenAI and receives the plan structure back
-async function callOpenAI(prompt) {
+// model: Optional model name (defaults to OPENAI_MODEL if not provided)
+// complexity: Optional complexity level ('MVP', 'Standard', 'Enterprise')
+async function callOpenAI(prompt, model = null, complexity = 'MVP') {
+    const selectedModel = model || OPENAI_MODEL;
     console.log('=== callOpenAI function called ===');
     console.log('APP_VERSION:', APP_VERSION);
     console.log('Prompt:', prompt);
+    console.log('Selected Model:', selectedModel);
+    console.log('Complexity Level:', complexity);
     console.log('OpenAI API URL:', OPENAI_API_URL);
 
     // Read API Key from Forge variables only
@@ -57,13 +62,47 @@ async function callOpenAI(prompt) {
         );
     }
     
+    // Create system prompt based on complexity level
+    let complexityInstructions = '';
+    
+    if (complexity === 'MVP') {
+        complexityInstructions = `COMPLEXITY: MVP (Minimum Viable Product)
+- Focus ONLY on core value and essential features
+- Generate approximately 3-5 critical User Stories
+- Keep it simple and minimal - only what's absolutely necessary to deliver value
+- Each Story should have 2-4 Sub-tasks covering the essential work
+- Avoid nice-to-have features, focus on must-have functionality`;
+    } else if (complexity === 'Standard') {
+        complexityInstructions = `COMPLEXITY: Standard (Full Product)
+- Build a complete, production-ready application
+- Generate approximately 8-12 User Stories covering main user flows and some edge cases
+- Include core features, user authentication, basic error handling, and data validation
+- Each Story should have 3-5 Sub-tasks covering implementation details
+- Consider user experience, basic security, and common use cases`;
+    } else if (complexity === 'Enterprise') {
+        complexityInstructions = `COMPLEXITY: Enterprise (Scalable & Secure)
+- Be more detailed and comprehensive
+- Generate approximately 15+ User Stories covering all aspects of the system
+- MUST include dedicated Stories for:
+  * Security: Authentication, Authorization, Data Encryption, Security Auditing
+  * Logging & Monitoring: Application Logging, Error Tracking, Performance Monitoring, Audit Trails
+  * Scalability: Database Optimization, Caching Strategy, Load Balancing, Performance Tuning
+  * CI/CD Pipelines: Automated Testing, Build Automation, Deployment Pipeline, Environment Management
+  * Role-Based Access Control (RBAC): User Roles, Permissions Management, Access Control Lists
+- Each Story should have 4-6 detailed Sub-tasks
+- Include infrastructure, compliance, documentation, and operational concerns
+- Consider multi-tenancy, disaster recovery, and enterprise-grade features`;
+    }
+    
     // Create system prompt for OpenAI to analyze and generate plan structure
     const systemPrompt = `You are a project planning assistant. Your task is to analyze a user's prompt and create a detailed project plan structure for Jira.
 
+${complexityInstructions}
+
 The plan should include:
 1. An Epic with a clear title and description
-2. Multiple Stories (typically 3-5 stories) that break down the work
-3. Each Story should have 3-5 Sub-tasks that detail the specific work items
+2. Multiple Stories as specified by the complexity level above
+3. Each Story should have Sub-tasks that detail the specific work items (quantity as specified above)
 
 Return your response as a valid JSON object with this exact structure:
 {
@@ -84,7 +123,7 @@ Return your response as a valid JSON object with this exact structure:
   }
 }
 
-Make sure the plan is comprehensive, realistic, and follows software development best practices.`;
+Make sure the plan is comprehensive, realistic, and follows software development best practices. Follow the complexity guidelines strictly.`;
 
     const userPrompt = `Create a detailed project plan for: ${prompt}`;
     
@@ -93,8 +132,8 @@ Make sure the plan is comprehensive, realistic, and follows software development
         
         // Create request body
         const requestBody = {
-            // Use gpt-4o-mini for cost efficiency or change to gpt-4o for higher accuracy
-            model: OPENAI_MODEL,
+            // Use the provided model or fall back to default
+            model: selectedModel,
             messages: [
                 {
                     role: 'system',
@@ -217,19 +256,25 @@ Make sure the plan is comprehensive, realistic, and follows software development
 // Function to generate a plan from a prompt using OpenAI API
 // This function calls OpenAI API to analyze the prompt and generate Epic -> Stories -> Sub-tasks structure
 resolver.define('generatePlan', async (req) => {
-    const { prompt } = req.payload;
+    const { prompt, model, complexity } = req.payload;
     
     if (!prompt || !prompt.trim()) {
         throw new Error('Prompt is required');
     }
     
+    // Validate complexity (default to MVP if invalid)
+    const validComplexities = ['MVP', 'Standard', 'Enterprise'];
+    const selectedComplexity = validComplexities.includes(complexity) ? complexity : 'MVP';
+    
     console.log('=== generatePlan called ===');
     console.log('Prompt received:', prompt);
+    console.log('Model requested:', model || 'default (gpt-4o-mini)');
+    console.log('Complexity level:', selectedComplexity);
     
     try {
         // Call OpenAI API to analyze prompt and generate plan
         console.log('Calling callOpenAI function...');
-        const plan = await callOpenAI(prompt);
+        const plan = await callOpenAI(prompt, model, selectedComplexity);
         
         console.log('Plan generated by OpenAI:', JSON.stringify(plan, null, 2));
         
@@ -449,69 +494,81 @@ resolver.define('generateAndCreateIssues', async (req) => {
 
 // Function to create issues in Jira (for manual creation cases)
 // Creates Epic, Stories, and Sub-tasks based on the plan
+// STRICT EXECUTION ORDER: Epic -> Stories (linked via parent) -> Subtasks (linked via parent)
 resolver.define('createIssues', async (req) => {
     const { plan } = req.payload;
     
-    console.log('Creating issues for plan:', plan);
+    console.log('=== createIssues called ===');
+    console.log('Plan structure:', JSON.stringify(plan, null, 2));
     
-    if (!plan || !plan.epic) {
-        throw new Error('Invalid plan structure');
+    if (!plan) {
+        throw new Error('Invalid plan structure - plan is missing');
     }
     
     const createdIssues = [];
     let epicKey = null;
-    const projectKey = req.context.extension.project.key;
+    const projectKey = req.context?.extension?.project?.key;
+    
+    if (!projectKey) {
+        throw new Error('Project key not found in context');
+    }
     
     try {
-        // 1. Create Epic
-        const epicResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                fields: {
-                    project: {
-                        key: projectKey
-                    },
-                    summary: plan.epic.title,
-                    description: {
-                        type: 'doc',
-                        version: 1,
-                        content: [
-                            {
-                                type: 'paragraph',
-                                content: [
-                                    {
-                                        type: 'text',
-                                        text: plan.epic.description || plan.epic.title
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    issuetype: {
-                        name: 'Epic'
+        // STEP 1: Create Epic First (if selected)
+        if (plan.epic) {
+            console.log('Step 1: Creating Epic...');
+            const epicResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fields: {
+                        project: {
+                            key: projectKey
+                        },
+                        summary: plan.epic.title,
+                        description: {
+                            type: 'doc',
+                            version: 1,
+                            content: [
+                                {
+                                    type: 'paragraph',
+                                    content: [
+                                        {
+                                            type: 'text',
+                                            text: plan.epic.description || plan.epic.title
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        issuetype: {
+                            name: 'Epic'
+                        }
                     }
-                }
-            })
-        });
-        
-        if (!epicResponse.ok) {
-            const errorText = await epicResponse.text();
-            throw new Error(`Failed to create Epic: ${errorText}`);
+                })
+            });
+            
+            if (!epicResponse.ok) {
+                const errorText = await epicResponse.text();
+                throw new Error(`Failed to create Epic: ${errorText}`);
+            }
+            
+            const epicData = await epicResponse.json();
+            epicKey = epicData.key;
+            createdIssues.push({ key: epicKey, type: 'Epic', title: plan.epic.title });
+            console.log('✓ Created Epic:', epicKey);
         }
         
-        const epicData = await epicResponse.json();
-        epicKey = epicData.key;
-        createdIssues.push({ key: epicKey, type: 'Epic', title: plan.epic.title });
-        
-        console.log('Created Epic:', epicKey);
-        
-        // 2. Create Stories and Sub-tasks
-        if (plan.epic.stories && plan.epic.stories.length > 0) {
-            for (const story of plan.epic.stories) {
-                // Create Story - use Epic Link custom field
+        // STEP 2: Create Stories (Linked to Epic via parent field)
+        if (plan.stories && Array.isArray(plan.stories) && plan.stories.length > 0) {
+            console.log(`Step 2: Creating ${plan.stories.length} Stories...`);
+            
+            for (const story of plan.stories) {
+                console.log(`Creating Story: ${story.title}`);
+                
+                // Build story fields - use parent field to link to Epic
                 const storyFields = {
                     project: {
                         key: projectKey
@@ -537,13 +594,13 @@ resolver.define('createIssues', async (req) => {
                     }
                 };
                 
-                // Add Epic Link (customfield_10011 is default Epic Link field)
-                try {
-                    storyFields.customfield_10011 = epicKey;
-                } catch (e) {
-                    console.log('Epic Link field may not be available');
+                // IMPORTANT: Link Story to Epic using parent field (NOT customfield)
+                if (epicKey) {
+                    storyFields.parent = { key: epicKey };
+                    console.log(`Linking Story to Epic: ${epicKey}`);
                 }
                 
+                // Await Story creation
                 const storyResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
                     method: 'POST',
                     headers: {
@@ -556,19 +613,23 @@ resolver.define('createIssues', async (req) => {
                 
                 if (!storyResponse.ok) {
                     const errorText = await storyResponse.text();
-                    console.error(`Failed to create Story: ${errorText}`);
-                    continue;
+                    console.error(`Failed to create Story "${story.title}": ${errorText}`);
+                    continue; // Skip to next story if this one fails
                 }
                 
                 const storyData = await storyResponse.json();
                 const storyKey = storyData.key;
                 createdIssues.push({ key: storyKey, type: 'Story', title: story.title });
+                console.log(`✓ Created Story: ${storyKey}`);
                 
-                console.log('Created Story:', storyKey);
-                
-                // Create Sub-tasks
-                if (story.subtasks && story.subtasks.length > 0) {
+                // STEP 3: Create Subtasks (Linked to Story via parent field)
+                if (story.subtasks && Array.isArray(story.subtasks) && story.subtasks.length > 0) {
+                    console.log(`Step 3: Creating ${story.subtasks.length} Subtasks for Story ${storyKey}...`);
+                    
                     for (const subtask of story.subtasks) {
+                        console.log(`Creating Sub-task: ${subtask.title}`);
+                        
+                        // Await Sub-task creation
                         const subtaskResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
                             method: 'POST',
                             headers: {
@@ -596,10 +657,10 @@ resolver.define('createIssues', async (req) => {
                                         ]
                                     },
                                     issuetype: {
-                                        name: 'Sub-task'
+                                        name: 'Sub-task' // Use hyphen as specified
                                     },
                                     parent: {
-                                        key: storyKey
+                                        key: storyKey // Link to parent Story
                                     }
                                 }
                             })
@@ -607,22 +668,26 @@ resolver.define('createIssues', async (req) => {
                         
                         if (!subtaskResponse.ok) {
                             const errorText = await subtaskResponse.text();
-                            console.error(`Failed to create Sub-task: ${errorText}`);
-                            continue;
+                            console.error(`Failed to create Sub-task "${subtask.title}": ${errorText}`);
+                            continue; // Skip to next subtask if this one fails
                         }
                         
                         const subtaskData = await subtaskResponse.json();
                         createdIssues.push({ key: subtaskData.key, type: 'Sub-task', title: subtask.title });
-                        
-                        console.log('Created Sub-task:', subtaskData.key);
+                        console.log(`✓ Created Sub-task: ${subtaskData.key}`);
                     }
                 }
             }
+        } else {
+            console.log('No stories to create (plan.stories is empty or missing)');
         }
+        
+        console.log(`=== Creation Complete: ${createdIssues.length} issues created ===`);
         
         return {
             success: true,
             createdCount: createdIssues.length,
+            message: `Success! Created ${createdIssues.length} items (Epic/Story/Task) in Jira Backlog successfully.`,
             issues: createdIssues
         };
         
