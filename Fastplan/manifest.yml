@@ -1,0 +1,26 @@
+modules:
+  jira:projectPage:
+    - key: fastplan-hello-world-project-page
+      resource: main
+      resolver:
+        function: resolver
+      title: Fastplan
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: static/hello-world/build
+app:
+  runtime:
+    name: nodejs20.x
+    memoryMB: 256
+  id: ari:cloud:ecosystem::app/85d7629f-ead7-4099-81b7-7930ee7aa90a
+permissions:
+  scopes:
+    - write:jira-work
+    - read:jira-work
+  external:
+    fetch:
+      backend:
+        - address: https://api.openai.com
