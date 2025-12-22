@@ -18,6 +18,9 @@ app:
   id: ari:cloud:ecosystem::app/85d7629f-ead7-4099-81b7-7930ee7aa90a
 permissions:
   scopes:
+    - read:board-scope:jira-software
+    - read:project:jira
+    - write:sprint:jira-software
     - write:jira-work
     - read:jira-work
   external:

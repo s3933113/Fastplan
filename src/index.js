@@ -70,18 +70,18 @@ async function callOpenAI(prompt, model = null, complexity = 'MVP') {
 - Focus ONLY on core value and essential features
 - Generate approximately 3-5 critical User Stories
 - Keep it simple and minimal - only what's absolutely necessary to deliver value
-- Each Story should have 2-4 Sub-tasks covering the essential work
+- Each Story should have detailed description and 2-4 acceptance criteria
 - Avoid nice-to-have features, focus on must-have functionality`;
     } else if (complexity === 'Standard') {
         complexityInstructions = `COMPLEXITY: Standard (Full Product)
 - Build a complete, production-ready application
 - Generate approximately 8-12 User Stories covering main user flows and some edge cases
 - Include core features, user authentication, basic error handling, and data validation
-- Each Story should have 3-5 Sub-tasks covering implementation details
+- Each Story should have detailed description and 3-5 acceptance criteria
 - Consider user experience, basic security, and common use cases`;
     } else if (complexity === 'Enterprise') {
         complexityInstructions = `COMPLEXITY: Enterprise (Scalable & Secure)
-- Be more detailed and comprehensive
+- Be extremely detailed and comprehensive
 - Generate approximately 15+ User Stories covering all aspects of the system
 - MUST include dedicated Stories for:
   * Security: Authentication, Authorization, Data Encryption, Security Auditing
@@ -89,7 +89,7 @@ async function callOpenAI(prompt, model = null, complexity = 'MVP') {
   * Scalability: Database Optimization, Caching Strategy, Load Balancing, Performance Tuning
   * CI/CD Pipelines: Automated Testing, Build Automation, Deployment Pipeline, Environment Management
   * Role-Based Access Control (RBAC): User Roles, Permissions Management, Access Control Lists
-- Each Story should have 4-6 detailed Sub-tasks
+- Each Story should have detailed description and 4-6 acceptance criteria
 - Include infrastructure, compliance, documentation, and operational concerns
 - Consider multi-tenancy, disaster recovery, and enterprise-grade features`;
     }
@@ -100,32 +100,70 @@ async function callOpenAI(prompt, model = null, complexity = 'MVP') {
 ${complexityInstructions}
 
 The plan should include:
-1. An Epic with a clear title and description
+1. An Epic with a clear title, detailed description, priority, acceptance criteria, and list of linked stories
 2. Multiple Stories as specified by the complexity level above
-3. Each Story should have Sub-tasks that detail the specific work items (quantity as specified above)
+3. Each Story should have a detailed description, priority, and acceptance criteria (NO subtasks)
 
 Return your response as a valid JSON object with this exact structure:
 {
   "epic": {
     "title": "Epic title (max 100 characters)",
-    "description": "Detailed epic description explaining the overall goal",
+    "description": "Detailed epic description explaining the overall goal, business value, and scope",
+    "priority": "High" | "Medium" | "Low" | "Lowest",
+    "acceptanceCriteria": [
+      "Criterion 1: Clear, testable acceptance criterion",
+      "Criterion 2: Another measurable criterion",
+      "Criterion 3: Additional criterion if needed"
+    ],
+    "storyLinks": [
+      "Brief description of Story 1 and how it relates to the epic",
+      "Brief description of Story 2 and how it relates to the epic"
+    ],
     "stories": [
       {
         "title": "Story title (max 100 characters)",
-        "description": "Story description",
-        "subtasks": [
-          {
-            "title": "Sub-task title (max 100 characters)"
-          }
+        "description": "Detailed story description explaining what needs to be done and why",
+        "priority": "High" | "Medium" | "Low" | "Lowest",
+        "storyPoints": 1 | 2 | 3 | 5 | 8 | 13,
+        "acceptanceCriteria": [
+          "Criterion 1: Clear, testable acceptance criterion for this story",
+          "Criterion 2: Another measurable criterion",
+          "Criterion 3: Additional criterion if needed"
         ]
       }
     ]
   }
 }
 
+IMPORTANT:
+- The "storyLinks" array should contain brief descriptions of how each story relates to the epic (one entry per story)
+- Priority assignment is CRITICAL - you MUST vary priorities realistically based on actual importance:
+  * "High": Only for critical, blocking, or must-have features that are essential for core functionality
+  * "Medium": For important features that support core functionality but are not blocking
+  * "Low": For nice-to-have features that enhance the product but are not essential
+  * "Lowest": For optional features, polish, or enhancements that can be deferred
+- DO NOT assign "High" to all stories - distribute priorities realistically (typically: 1-2 High, 2-4 Medium, 2-3 Low, 1-2 Lowest for a typical project)
+- The epic priority should reflect the overall project importance
+- Each story's priority should be independent and based on its specific business value and urgency
+- Story Points: Use Fibonacci sequence (1, 2, 3, 5, 8, 13) to estimate complexity. Assign points based on:
+  * 1 = Very simple, minimal effort
+  * 2 = Simple, straightforward
+  * 3 = Moderate complexity
+  * 5 = Complex, requires significant effort
+  * 8 = Very complex, multiple components
+  * 13 = Extremely complex, high uncertainty or large scope
+- Acceptance criteria should be clear, testable, and measurable statements
+- The epic description should be comprehensive and explain the business value
+
 Make sure the plan is comprehensive, realistic, and follows software development best practices. Follow the complexity guidelines strictly.`;
 
-    const userPrompt = `Create a detailed project plan for: ${prompt}`;
+    const userPrompt = `Create a detailed project plan for: ${prompt}
+
+CRITICAL: When assigning priorities, analyze each story/epic carefully and assign priorities realistically:
+- Not all items should be "High" priority
+- Consider which features are truly critical vs. nice-to-have
+- Distribute priorities across High, Medium, Low, and Lowest based on actual business value and urgency
+- Core functionality = High, Supporting features = Medium, Enhancements = Low, Optional = Lowest`;
     
     try {
         console.log('Making request to OpenAI API:', OPENAI_API_URL);
@@ -214,6 +252,44 @@ Make sure the plan is comprehensive, realistic, and follows software development
                 console.error('Invalid plan structure:', JSON.stringify(plan, null, 2));
                 throw new Error('Invalid plan structure from OpenAI - missing required fields');
             }
+            
+            // Ensure optional fields have defaults if missing for epic
+            if (!plan.epic.priority) {
+                plan.epic.priority = 'Medium'; // Default priority
+            }
+            // Validate priority value
+            const validPriorities = ['High', 'Medium', 'Low', 'Lowest'];
+            if (!validPriorities.includes(plan.epic.priority)) {
+                plan.epic.priority = 'Medium'; // Default to Medium if invalid
+            }
+            if (!plan.epic.acceptanceCriteria || !Array.isArray(plan.epic.acceptanceCriteria)) {
+                plan.epic.acceptanceCriteria = []; // Default empty array
+            }
+            if (!plan.epic.storyLinks || !Array.isArray(plan.epic.storyLinks)) {
+                plan.epic.storyLinks = []; // Default empty array
+            }
+            
+            // Ensure optional fields have defaults if missing for stories
+            const validStoryPoints = [1, 2, 3, 5, 8, 13];
+            plan.epic.stories.forEach((story, idx) => {
+                if (!story.priority) {
+                    story.priority = 'Medium'; // Default priority
+                }
+                // Validate priority value
+                if (!validPriorities.includes(story.priority)) {
+                    story.priority = 'Medium'; // Default to Medium if invalid
+                }
+                // Validate story points
+                if (!story.storyPoints || !validStoryPoints.includes(story.storyPoints)) {
+                    story.storyPoints = 3; // Default to 3 if missing or invalid
+                }
+                if (!story.acceptanceCriteria || !Array.isArray(story.acceptanceCriteria)) {
+                    story.acceptanceCriteria = []; // Default empty array
+                }
+                if (!story.description) {
+                    story.description = story.title; // Default to title if no description
+                }
+            });
             
             console.log('Plan generated successfully by OpenAI:', JSON.stringify(plan, null, 2));
             
@@ -321,6 +397,63 @@ resolver.define('generateAndCreateIssues', async (req) => {
         console.log('Plan generated by OpenAI API successfully');
         console.log('Plan structure:', JSON.stringify(plan, null, 2));
         console.log('Now creating issues in Jira...');
+        
+        // Build epic description with acceptance criteria and story links
+        let epicDescription = plan.epic.description || plan.epic.title;
+        
+        // Add acceptance criteria section if available
+        if (plan.epic.acceptanceCriteria && plan.epic.acceptanceCriteria.length > 0) {
+            epicDescription += '\n\n=== Acceptance Criteria ===\n';
+            plan.epic.acceptanceCriteria.forEach((criteria, idx) => {
+                epicDescription += `${idx + 1}. ${criteria}\n`;
+            });
+        }
+        
+        // Add story links section if available
+        if (plan.epic.storyLinks && plan.epic.storyLinks.length > 0) {
+            epicDescription += '\n=== Linked Stories ===\n';
+            plan.epic.storyLinks.forEach((link, idx) => {
+                epicDescription += `${idx + 1}. ${link}\n`;
+            });
+        }
+        
+        // Build epic fields
+        const epicFields = {
+            project: {
+                key: projectKey
+            },
+            summary: plan.epic.title,
+            description: {
+                type: 'doc',
+                version: 1,
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            {
+                                type: 'text',
+                                text: epicDescription
+                            }
+                        ]
+                    }
+                ]
+            },
+            issuetype: {
+                name: 'Epic'
+            }
+        };
+        
+        // Add priority if available (map to Jira priority names)
+        if (plan.epic.priority) {
+            const priorityMap = {
+                'High': 'Highest',
+                'Medium': 'Medium',
+                'Low': 'Lowest'
+            };
+            const jiraPriority = priorityMap[plan.epic.priority] || 'Medium';
+            epicFields.priority = { name: jiraPriority };
+        }
+        
         // 1. Create Epic
         const epicResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
             method: 'POST',
@@ -328,30 +461,7 @@ resolver.define('generateAndCreateIssues', async (req) => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                fields: {
-                    project: {
-                        key: projectKey
-                    },
-                    summary: plan.epic.title,
-                    description: {
-                        type: 'doc',
-                        version: 1,
-                        content: [
-                            {
-                                type: 'paragraph',
-                                content: [
-                                    {
-                                        type: 'text',
-                                        text: plan.epic.description || plan.epic.title
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    issuetype: {
-                        name: 'Epic'
-                    }
-                }
+                fields: epicFields
             })
         });
         
@@ -395,11 +505,54 @@ resolver.define('generateAndCreateIssues', async (req) => {
                     }
                 };
                 
-                // Add Epic Link (customfield_10011 is default Epic Link field)
-                try {
-                    storyFields.customfield_10011 = epicKey;
-                } catch (e) {
-                    console.log('Epic Link field may not be available');
+                // Build story description with acceptance criteria
+                let storyDescription = story.description || story.title;
+                
+                // Add story points if available
+                if (story.storyPoints) {
+                    storyDescription += `\n\n=== Story Points ===\n${story.storyPoints} (Fibonacci: 1, 2, 3, 5, 8, 13)`;
+                }
+                
+                // Add acceptance criteria section if available
+                if (story.acceptanceCriteria && story.acceptanceCriteria.length > 0) {
+                    storyDescription += '\n\n=== Acceptance Criteria ===\n';
+                    story.acceptanceCriteria.forEach((criteria, idx) => {
+                        storyDescription += `${idx + 1}. ${criteria}\n`;
+                    });
+                }
+                
+                storyFields.description = {
+                    type: 'doc',
+                    version: 1,
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: storyDescription
+                                }
+                            ]
+                        }
+                    ]
+                };
+                
+                // Add priority if available (map to Jira priority names)
+                if (story.priority) {
+                    const priorityMap = {
+                        'High': 'High',
+                        'Medium': 'Medium',
+                        'Low': 'Low',
+                        'Lowest': 'Lowest'
+                    };
+                    const jiraPriority = priorityMap[story.priority] || 'Medium';
+                    storyFields.priority = { name: jiraPriority };
+                }
+                
+                // IMPORTANT: Link Story to Epic using parent field (NOT customfield)
+                if (epicKey) {
+                    storyFields.parent = { key: epicKey };
+                    console.log(`Linking Story to Epic: ${epicKey}`);
                 }
                 
                 const storyResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
@@ -423,58 +576,6 @@ resolver.define('generateAndCreateIssues', async (req) => {
                 createdIssues.push({ key: storyKey, type: 'Story', title: story.title });
                 
                 console.log('Created Story:', storyKey);
-                
-                // Create Sub-tasks
-                if (story.subtasks && story.subtasks.length > 0) {
-                    for (const subtask of story.subtasks) {
-                        const subtaskResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                fields: {
-                                    project: {
-                                        key: projectKey
-                                    },
-                                    summary: subtask.title,
-                                    description: {
-                                        type: 'doc',
-                                        version: 1,
-                                        content: [
-                                            {
-                                                type: 'paragraph',
-                                                content: [
-                                                    {
-                                                        type: 'text',
-                                                        text: subtask.title
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    issuetype: {
-                                        name: 'Sub-task'
-                                    },
-                                    parent: {
-                                        key: storyKey
-                                    }
-                                }
-                            })
-                        });
-                        
-                        if (!subtaskResponse.ok) {
-                            const errorText = await subtaskResponse.text();
-                            console.error(`Failed to create Sub-task: ${errorText}`);
-                            continue;
-                        }
-                        
-                        const subtaskData = await subtaskResponse.json();
-                        createdIssues.push({ key: subtaskData.key, type: 'Sub-task', title: subtask.title });
-                        
-                        console.log('Created Sub-task:', subtaskData.key);
-                    }
-                }
             }
         }
         
@@ -517,36 +618,71 @@ resolver.define('createIssues', async (req) => {
         // STEP 1: Create Epic First (if selected)
         if (plan.epic) {
             console.log('Step 1: Creating Epic...');
+            
+            // Build epic description with acceptance criteria and story links
+            let epicDescription = plan.epic.description || plan.epic.title;
+            
+            // Add acceptance criteria section if available
+            if (plan.epic.acceptanceCriteria && plan.epic.acceptanceCriteria.length > 0) {
+                epicDescription += '\n\n=== Acceptance Criteria ===\n';
+                plan.epic.acceptanceCriteria.forEach((criteria, idx) => {
+                    epicDescription += `${idx + 1}. ${criteria}\n`;
+                });
+            }
+            
+            // Add story links section if available
+            if (plan.epic.storyLinks && plan.epic.storyLinks.length > 0) {
+                epicDescription += '\n=== Linked Stories ===\n';
+                plan.epic.storyLinks.forEach((link, idx) => {
+                    epicDescription += `${idx + 1}. ${link}\n`;
+                });
+            }
+            
+            // Build epic fields
+            const epicFields = {
+                project: {
+                    key: projectKey
+                },
+                summary: plan.epic.title,
+                description: {
+                    type: 'doc',
+                    version: 1,
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: epicDescription
+                                }
+                            ]
+                        }
+                    ]
+                },
+                issuetype: {
+                    name: 'Epic'
+                }
+            };
+            
+            // Add priority if available (map to Jira priority names)
+            if (plan.epic.priority) {
+                const priorityMap = {
+                    'High': 'High',
+                    'Medium': 'Medium',
+                    'Low': 'Low',
+                    'Lowest': 'Lowest'
+                };
+                const jiraPriority = priorityMap[plan.epic.priority] || 'Medium';
+                epicFields.priority = { name: jiraPriority };
+            }
+            
             const epicResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    fields: {
-                        project: {
-                            key: projectKey
-                        },
-                        summary: plan.epic.title,
-                        description: {
-                            type: 'doc',
-                            version: 1,
-                            content: [
-                                {
-                                    type: 'paragraph',
-                                    content: [
-                                        {
-                                            type: 'text',
-                                            text: plan.epic.description || plan.epic.title
-                                        }
-                                    ]
-                                }
-                            ]
-                        },
-                        issuetype: {
-                            name: 'Epic'
-                        }
-                    }
+                    fields: epicFields
                 })
             });
             
@@ -594,6 +730,62 @@ resolver.define('createIssues', async (req) => {
                     }
                 };
                 
+                // Build story description with acceptance criteria
+                let storyDescription = story.description || story.title;
+                
+                // Add story points if available
+                if (story.storyPoints) {
+                    storyDescription += `\n\n=== Story Points ===\n${story.storyPoints} (Fibonacci: 1, 2, 3, 5, 8, 13)`;
+                }
+                
+                // Add acceptance criteria section if available
+                if (story.acceptanceCriteria && story.acceptanceCriteria.length > 0) {
+                    storyDescription += '\n\n=== Acceptance Criteria ===\n';
+                    story.acceptanceCriteria.forEach((criteria, idx) => {
+                        storyDescription += `${idx + 1}. ${criteria}\n`;
+                    });
+                }
+                
+                storyFields.description = {
+                    type: 'doc',
+                    version: 1,
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: storyDescription
+                                }
+                            ]
+                        }
+                    ]
+                };
+                
+                // Add priority if available (map to Jira priority names)
+                if (story.priority) {
+                    const priorityMap = {
+                        'High': 'High',
+                        'Medium': 'Medium',
+                        'Low': 'Low',
+                        'Lowest': 'Lowest'
+                    };
+                    const jiraPriority = priorityMap[story.priority] || 'Medium';
+                    storyFields.priority = { name: jiraPriority };
+                }
+                
+                // Add story points if available (try to use customfield_10016 which is common for Story Points)
+                // Note: This field ID may vary by Jira instance, but customfield_10016 is the most common
+                if (story.storyPoints) {
+                    try {
+                        // Try to set story points using common custom field ID
+                        storyFields['customfield_10016'] = story.storyPoints;
+                        console.log(`Setting Story Points: ${story.storyPoints}`);
+                    } catch (error) {
+                        console.log(`Could not set Story Points custom field, but it's included in description`);
+                    }
+                }
+                
                 // IMPORTANT: Link Story to Epic using parent field (NOT customfield)
                 if (epicKey) {
                     storyFields.parent = { key: epicKey };
@@ -621,62 +813,6 @@ resolver.define('createIssues', async (req) => {
                 const storyKey = storyData.key;
                 createdIssues.push({ key: storyKey, type: 'Story', title: story.title });
                 console.log(`✓ Created Story: ${storyKey}`);
-                
-                // STEP 3: Create Subtasks (Linked to Story via parent field)
-                if (story.subtasks && Array.isArray(story.subtasks) && story.subtasks.length > 0) {
-                    console.log(`Step 3: Creating ${story.subtasks.length} Subtasks for Story ${storyKey}...`);
-                    
-                    for (const subtask of story.subtasks) {
-                        console.log(`Creating Sub-task: ${subtask.title}`);
-                        
-                        // Await Sub-task creation
-                        const subtaskResponse = await api.asUser().requestJira(route`/rest/api/3/issue`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                fields: {
-                                    project: {
-                                        key: projectKey
-                                    },
-                                    summary: subtask.title,
-                                    description: {
-                                        type: 'doc',
-                                        version: 1,
-                                        content: [
-                                            {
-                                                type: 'paragraph',
-                                                content: [
-                                                    {
-                                                        type: 'text',
-                                                        text: subtask.title
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    issuetype: {
-                                        name: 'Sub-task' // Use hyphen as specified
-                                    },
-                                    parent: {
-                                        key: storyKey // Link to parent Story
-                                    }
-                                }
-                            })
-                        });
-                        
-                        if (!subtaskResponse.ok) {
-                            const errorText = await subtaskResponse.text();
-                            console.error(`Failed to create Sub-task "${subtask.title}": ${errorText}`);
-                            continue; // Skip to next subtask if this one fails
-                        }
-                        
-                        const subtaskData = await subtaskResponse.json();
-                        createdIssues.push({ key: subtaskData.key, type: 'Sub-task', title: subtask.title });
-                        console.log(`✓ Created Sub-task: ${subtaskData.key}`);
-                    }
-                }
             }
         } else {
             console.log('No stories to create (plan.stories is empty or missing)');

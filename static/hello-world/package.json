@@ -6,6 +6,7 @@
   "dependencies": {
     "@atlaskit/css-reset": "^6.6.2",
     "@forge/bridge": "5.10.0",
+    "@forge/react": "^11.9.0",
     "react": "^16",
     "react-dom": "^16"
   },
